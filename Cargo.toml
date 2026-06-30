@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/msrs-core", "crates/msrs-transport", "examples/echo"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+rust-version = "1.83"
+
+[workspace.dependencies]
+cu29 = "1.0.0-rc2"
+statig = "0.4"
+thread-priority = "3"
+core_affinity = "0.8"
+crossbeam-channel = "0.5"

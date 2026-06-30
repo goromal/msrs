@@ -1,0 +1,11 @@
+[package]
+name = "echo"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cu29.workspace = true
+statig.workspace = true
+msrs-core = { path = "../../crates/msrs-core" }
+msrs-transport = { path = "../../crates/msrs-transport" }
