@@ -4,41 +4,41 @@
     {
       "id": 7,
       "subject": "Task 0: Workspace scaffold compiles green",
-      "status": "pending",
+      "status": "completed",
       "description": "Create cargo workspace (members: crates/msrs-core, crates/msrs-transport, examples/echo) with workspace.dependencies cu29=1.0.0-rc2, statig=0.4, thread-priority=3, core_affinity=0.8, crossbeam-channel=0.5; rust-toolchain 1.95; .gitignore; skeleton crates build green.\n\n```json:metadata\n{\"files\": [\"Cargo.toml\",\"rust-toolchain.toml\",\".gitignore\",\"crates/msrs-core/Cargo.toml\",\"crates/msrs-core/src/lib.rs\",\"crates/msrs-transport/Cargo.toml\",\"crates/msrs-transport/src/lib.rs\",\"examples/echo/Cargo.toml\",\"examples/echo/src/main.rs\"], \"verifyCommand\": \"/tmp/xcargo build && /tmp/xcargo test\", \"acceptanceCriteria\": [\"cargo build succeeds workspace-wide\",\"cargo test exits 0 with 0 tests\"]}\n```"
     },
     {
       "id": 8,
       "subject": "Task 1: Trigger<In> enum",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [7],
       "description": "Trigger::Tick(u64) + Trigger::Message(&In); message()/is_tick() helpers; unit tests.\n\n```json:metadata\n{\"files\": [\"crates/msrs-core/src/trigger.rs\",\"crates/msrs-core/src/lib.rs\"], \"verifyCommand\": \"/tmp/xcargo test -p msrs-core trigger\", \"acceptanceCriteria\": [\"Tick carries ns timestamp, Message borrows payload\",\"message()/is_tick() helpers behave\",\"tests pass\"]}\n```"
     },
     {
       "id": 9,
       "subject": "Task 2: Effects<Out> write-capability",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [7],
       "description": "Effects buffers outputs: emit/take/take_one/is_empty; exposes no clock/transport/runtime; unit tests for ordering + empty.\n\n```json:metadata\n{\"files\": [\"crates/msrs-core/src/effects.rs\",\"crates/msrs-core/src/lib.rs\"], \"verifyCommand\": \"/tmp/xcargo test -p msrs-core effects\", \"acceptanceCriteria\": [\"emit/take FIFO + take_one + is_empty\",\"no clock/transport/runtime accessor\",\"tests pass\"]}\n```"
     },
     {
       "id": 10,
       "subject": "Task 3: Store convention trait",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [7],
       "description": "Store marker trait with purity doc; sample pure store (Counter) unit-tested in isolation.\n\n```json:metadata\n{\"files\": [\"crates/msrs-core/src/store.rs\",\"crates/msrs-core/src/lib.rs\"], \"verifyCommand\": \"/tmp/xcargo test -p msrs-core store\", \"acceptanceCriteria\": [\"Store marker trait with purity doc\",\"sample pure store unit-tested in isolation\"]}\n```"
     },
     {
       "id": 11,
       "subject": "Task 4: RtConfig real-time controls",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [7],
       "description": "RtConfig{scheduler,affinity} + SchedPolicy{Normal,Fifo}; apply() best-effort non-panicking; normal() ctor; tests for normal()+pin.\n\n```json:metadata\n{\"files\": [\"crates/msrs-core/src/rt.rs\",\"crates/msrs-core/src/lib.rs\"], \"verifyCommand\": \"/tmp/xcargo test -p msrs-core rt\", \"acceptanceCriteria\": [\"RtConfig+SchedPolicy types\",\"apply() best-effort non-panicking Result\",\"normal() applies Ok; pin-to-core no panic\"]}\n```"
     },
     {
       "id": 12,
       "subject": "Task 5: Integration spike — copper-rs + statig signatures",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [7],
       "description": "USER-GATE. Throwaway copper-rs source+sink app + minimal statig machine compile & run; capture exact rc2/0.4 signatures to notes.\n\n```json:metadata\n{\"files\": [\"spike/Cargo.toml\",\"spike/src/main.rs\",\"spike/copperconfig.ron\",\"docs/superpowers/notes/copper-statig-signatures.md\"], \"verifyCommand\": \"cd /data/andrew/dev/orch/sources/msrs/spike && /tmp/xcargo run\", \"acceptanceCriteria\": [\"copper src+sink app builds+runs, prints i32, output captured\",\"statig handle_with_context machine builds+runs, transition observed\",\"notes record exact CuContext clock accessor, Resources/Freezable/Reflect needs, copper_runtime boilerplate, statig handler+dispatch\"], \"userGate\": true, \"tags\": [\"user-gate\"]}\n```"
     },
@@ -71,5 +71,5 @@
       "description": "USER-GATE. EchoStore(pure)+EchoMachine(statig+FsmSpec) wired via RON DAG ingress->echo->egress + in-process transport; run e2e; replay unified-log for bit-for-bit determinism.\n\n```json:metadata\n{\"files\": [\"examples/echo/src/echo.rs\",\"examples/echo/src/main.rs\",\"examples/echo/copperconfig.ron\",\"examples/echo/Cargo.toml\"], \"verifyCommand\": \"/tmp/xcargo run -p echo\", \"acceptanceCriteria\": [\"EchoStore pure, unit-tested in isolation\",\"EchoMachine impls FsmSpec<String,String>+statig, echoes on Message\",\"feeding messages yields echoed strings on outbound side in stdout\",\"unified-log replay yields bit-for-bit identical output\"], \"userGate\": true, \"tags\": [\"user-gate\"]}\n```"
     }
   ],
-  "lastUpdated": "2026-06-29T00:00:00Z"
+  "lastUpdated": "2026-06-29T12:00:00Z"
 }
