@@ -7,3 +7,5 @@ pub mod store;
 pub use store::Store;
 pub mod rt;
 pub use rt::{RtConfig, SchedPolicy};
+pub mod fsm_task;
+pub use fsm_task::{run_step, FsmSpec, FsmTask};
