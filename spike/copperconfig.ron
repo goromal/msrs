@@ -1,0 +1,19 @@
+(
+    tasks: [
+        (
+            id: "src",
+            type: "Counter",
+        ),
+        (
+            id: "sink",
+            type: "Printer",
+        ),
+    ],
+    cnx: [
+        (
+            src: "src",
+            dst: "sink",
+            msg: "i32",
+        ),
+    ],
+)

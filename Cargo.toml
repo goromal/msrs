@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["crates/msrs-core", "crates/msrs-transport", "examples/echo"]
+exclude = ["spike"]
 
 [workspace.package]
 edition = "2021"

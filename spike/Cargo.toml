@@ -1,0 +1,13 @@
+# Throwaway spike crate. Detached from the parent workspace via the bare
+# [workspace] table below AND via `exclude = ["spike"]` in the root Cargo.toml.
+[package]
+name = "spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+cu29 = "1.0.0-rc2"
+statig = "0.4"
