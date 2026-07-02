@@ -11,65 +11,88 @@
       "id": 8,
       "subject": "Task 1: Trigger<In> enum",
       "status": "completed",
-      "blockedBy": [7],
+      "blockedBy": [
+        7
+      ],
       "description": "Trigger::Tick(u64) + Trigger::Message(&In); message()/is_tick() helpers; unit tests.\n\n```json:metadata\n{\"files\": [\"crates/msrs-core/src/trigger.rs\",\"crates/msrs-core/src/lib.rs\"], \"verifyCommand\": \"/tmp/xcargo test -p msrs-core trigger\", \"acceptanceCriteria\": [\"Tick carries ns timestamp, Message borrows payload\",\"message()/is_tick() helpers behave\",\"tests pass\"]}\n```"
     },
     {
       "id": 9,
       "subject": "Task 2: Effects<Out> write-capability",
       "status": "completed",
-      "blockedBy": [7],
+      "blockedBy": [
+        7
+      ],
       "description": "Effects buffers outputs: emit/take/take_one/is_empty; exposes no clock/transport/runtime; unit tests for ordering + empty.\n\n```json:metadata\n{\"files\": [\"crates/msrs-core/src/effects.rs\",\"crates/msrs-core/src/lib.rs\"], \"verifyCommand\": \"/tmp/xcargo test -p msrs-core effects\", \"acceptanceCriteria\": [\"emit/take FIFO + take_one + is_empty\",\"no clock/transport/runtime accessor\",\"tests pass\"]}\n```"
     },
     {
       "id": 10,
       "subject": "Task 3: Store convention trait",
       "status": "completed",
-      "blockedBy": [7],
+      "blockedBy": [
+        7
+      ],
       "description": "Store marker trait with purity doc; sample pure store (Counter) unit-tested in isolation.\n\n```json:metadata\n{\"files\": [\"crates/msrs-core/src/store.rs\",\"crates/msrs-core/src/lib.rs\"], \"verifyCommand\": \"/tmp/xcargo test -p msrs-core store\", \"acceptanceCriteria\": [\"Store marker trait with purity doc\",\"sample pure store unit-tested in isolation\"]}\n```"
     },
     {
       "id": 11,
       "subject": "Task 4: RtConfig real-time controls",
       "status": "completed",
-      "blockedBy": [7],
+      "blockedBy": [
+        7
+      ],
       "description": "RtConfig{scheduler,affinity} + SchedPolicy{Normal,Fifo}; apply() best-effort non-panicking; normal() ctor; tests for normal()+pin.\n\n```json:metadata\n{\"files\": [\"crates/msrs-core/src/rt.rs\",\"crates/msrs-core/src/lib.rs\"], \"verifyCommand\": \"/tmp/xcargo test -p msrs-core rt\", \"acceptanceCriteria\": [\"RtConfig+SchedPolicy types\",\"apply() best-effort non-panicking Result\",\"normal() applies Ok; pin-to-core no panic\"]}\n```"
     },
     {
       "id": 12,
       "subject": "Task 5: Integration spike — copper-rs + statig signatures",
       "status": "completed",
-      "blockedBy": [7],
+      "blockedBy": [
+        7
+      ],
       "description": "USER-GATE. Throwaway copper-rs source+sink app + minimal statig machine compile & run; capture exact rc2/0.4 signatures to notes.\n\n```json:metadata\n{\"files\": [\"spike/Cargo.toml\",\"spike/src/main.rs\",\"spike/copperconfig.ron\",\"docs/superpowers/notes/copper-statig-signatures.md\"], \"verifyCommand\": \"cd /data/andrew/dev/orch/sources/msrs/spike && /tmp/xcargo run\", \"acceptanceCriteria\": [\"copper src+sink app builds+runs, prints i32, output captured\",\"statig handle_with_context machine builds+runs, transition observed\",\"notes record exact CuContext clock accessor, Resources/Freezable/Reflect needs, copper_runtime boilerplate, statig handler+dispatch\"], \"userGate\": true, \"tags\": [\"user-gate\"]}\n```"
     },
     {
       "id": 13,
       "subject": "Task 6: FsmTask<M> — the CuTask adapter",
       "status": "completed",
-      "blockedBy": [8, 9, 10, 12],
+      "blockedBy": [
+        8,
+        9,
+        10,
+        12
+      ],
       "description": "FsmSpec helper + run_step (copper-agnostic, unit-tested) then FsmTask impls CuTask building Trigger from payload presence, writing take_one to output; Freezable+Reflect per Task 5.\n\n```json:metadata\n{\"files\": [\"crates/msrs-core/src/fsm_task.rs\",\"crates/msrs-core/src/lib.rs\",\"crates/msrs-core/Cargo.toml\"], \"verifyCommand\": \"/tmp/xcargo test -p msrs-core fsm_task\", \"acceptanceCriteria\": [\"FsmSpec+run_step copper-agnostic unit-tested (echo on Message, none on Tick)\",\"FsmTask impls CuTask Input=CuMsg<In> Output=CuMsg<Out>\",\"Trigger from payload presence; take_one written to output\",\"Freezable+Reflect satisfied\"]}\n```"
     },
     {
       "id": 14,
       "subject": "Task 7: Transport trait + TransportDriver",
       "status": "completed",
-      "blockedBy": [11],
+      "blockedBy": [
+        11
+      ],
       "description": "Transport trait (Inbound/Outbound/run) + TransportEvent; TransportDriver::spawn applies RtConfig on driver thread, returns DriverHandles; loopback round-trip test.\n\n```json:metadata\n{\"files\": [\"crates/msrs-transport/src/transport.rs\",\"crates/msrs-transport/src/driver.rs\",\"crates/msrs-transport/src/lib.rs\"], \"verifyCommand\": \"/tmp/xcargo test -p msrs-transport\", \"acceptanceCriteria\": [\"Transport trait + TransportEvent\",\"TransportDriver::spawn applies RtConfig, returns handles+join\",\"loopback round-trips and joins Ok\"]}\n```"
     },
     {
       "id": 15,
       "subject": "Task 8: Ingress/Egress copper-rs bridge tasks",
-      "status": "pending",
-      "blockedBy": [12, 14],
+      "status": "completed",
+      "blockedBy": [
+        12,
+        14
+      ],
       "description": "ingress_step/egress_step copper-agnostic helpers (unit-tested) then IngressTask:CuSrcTask + EgressTask:CuSinkTask holding channel ends, using Task 5 signatures; Freezable+Reflect.\n\n```json:metadata\n{\"files\": [\"crates/msrs-transport/src/tasks.rs\",\"crates/msrs-transport/src/lib.rs\",\"crates/msrs-transport/Cargo.toml\"], \"verifyCommand\": \"/tmp/xcargo test -p msrs-transport tasks\", \"acceptanceCriteria\": [\"ingress_step/egress_step unit-tested pass-through+empty\",\"IngressTask impls CuSrcTask, EgressTask impls CuSinkTask\",\"channels injected, Freezable+Reflect satisfied\"]}\n```"
     },
     {
       "id": 16,
       "subject": "Task 9: Echo example end-to-end",
       "status": "pending",
-      "blockedBy": [13, 15],
+      "blockedBy": [
+        13,
+        15
+      ],
       "description": "USER-GATE. EchoStore(pure)+EchoMachine(statig+FsmSpec) wired via RON DAG ingress->echo->egress + in-process transport; run e2e; replay unified-log for bit-for-bit determinism.\n\n```json:metadata\n{\"files\": [\"examples/echo/src/echo.rs\",\"examples/echo/src/main.rs\",\"examples/echo/copperconfig.ron\",\"examples/echo/Cargo.toml\"], \"verifyCommand\": \"/tmp/xcargo run -p echo\", \"acceptanceCriteria\": [\"EchoStore pure, unit-tested in isolation\",\"EchoMachine impls FsmSpec<String,String>+statig, echoes on Message\",\"feeding messages yields echoed strings on outbound side in stdout\",\"unified-log replay yields bit-for-bit identical output\"], \"userGate\": true, \"tags\": [\"user-gate\"]}\n```"
     }
   ],
-  "lastUpdated": "2026-07-01T00:00:00Z"
+  "lastUpdated": "2026-07-02T03:33:46Z"
 }
