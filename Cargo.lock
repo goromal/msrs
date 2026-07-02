@@ -472,9 +472,12 @@ dependencies = [
 name = "echo"
 version = "0.0.0"
 dependencies = [
+ "crossbeam-channel",
+ "cu-bincode",
  "cu29",
  "msrs-core",
  "msrs-transport",
+ "serde",
  "statig",
 ]
 

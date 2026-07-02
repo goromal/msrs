@@ -1,0 +1,28 @@
+(
+    tasks: [
+        (
+            id: "ingress",
+            type: "EchoIngress",
+        ),
+        (
+            id: "echo",
+            type: "EchoFsm",
+        ),
+        (
+            id: "egress",
+            type: "EchoEgress",
+        ),
+    ],
+    cnx: [
+        (
+            src: "ingress",
+            dst: "echo",
+            msg: "crate::EchoMsg",
+        ),
+        (
+            src: "echo",
+            dst: "egress",
+            msg: "crate::EchoMsg",
+        ),
+    ],
+)
