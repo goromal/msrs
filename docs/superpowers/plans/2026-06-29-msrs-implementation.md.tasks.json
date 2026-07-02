@@ -52,7 +52,7 @@
     {
       "id": 14,
       "subject": "Task 7: Transport trait + TransportDriver",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [11],
       "description": "Transport trait (Inbound/Outbound/run) + TransportEvent; TransportDriver::spawn applies RtConfig on driver thread, returns DriverHandles; loopback round-trip test.\n\n```json:metadata\n{\"files\": [\"crates/msrs-transport/src/transport.rs\",\"crates/msrs-transport/src/driver.rs\",\"crates/msrs-transport/src/lib.rs\"], \"verifyCommand\": \"/tmp/xcargo test -p msrs-transport\", \"acceptanceCriteria\": [\"Transport trait + TransportEvent\",\"TransportDriver::spawn applies RtConfig, returns handles+join\",\"loopback round-trips and joins Ok\"]}\n```"
     },
