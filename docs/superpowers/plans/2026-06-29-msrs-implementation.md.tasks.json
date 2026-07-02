@@ -45,7 +45,7 @@
     {
       "id": 13,
       "subject": "Task 6: FsmTask<M> — the CuTask adapter",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [8, 9, 10, 12],
       "description": "FsmSpec helper + run_step (copper-agnostic, unit-tested) then FsmTask impls CuTask building Trigger from payload presence, writing take_one to output; Freezable+Reflect per Task 5.\n\n```json:metadata\n{\"files\": [\"crates/msrs-core/src/fsm_task.rs\",\"crates/msrs-core/src/lib.rs\",\"crates/msrs-core/Cargo.toml\"], \"verifyCommand\": \"/tmp/xcargo test -p msrs-core fsm_task\", \"acceptanceCriteria\": [\"FsmSpec+run_step copper-agnostic unit-tested (echo on Message, none on Tick)\",\"FsmTask impls CuTask Input=CuMsg<In> Output=CuMsg<Out>\",\"Trigger from payload presence; take_one written to output\",\"Freezable+Reflect satisfied\"]}\n```"
     },
@@ -71,5 +71,5 @@
       "description": "USER-GATE. EchoStore(pure)+EchoMachine(statig+FsmSpec) wired via RON DAG ingress->echo->egress + in-process transport; run e2e; replay unified-log for bit-for-bit determinism.\n\n```json:metadata\n{\"files\": [\"examples/echo/src/echo.rs\",\"examples/echo/src/main.rs\",\"examples/echo/copperconfig.ron\",\"examples/echo/Cargo.toml\"], \"verifyCommand\": \"/tmp/xcargo run -p echo\", \"acceptanceCriteria\": [\"EchoStore pure, unit-tested in isolation\",\"EchoMachine impls FsmSpec<String,String>+statig, echoes on Message\",\"feeding messages yields echoed strings on outbound side in stdout\",\"unified-log replay yields bit-for-bit identical output\"], \"userGate\": true, \"tags\": [\"user-gate\"]}\n```"
     }
   ],
-  "lastUpdated": "2026-06-29T12:00:00Z"
+  "lastUpdated": "2026-07-01T00:00:00Z"
 }
