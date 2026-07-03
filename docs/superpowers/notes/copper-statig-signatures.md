@@ -362,3 +362,28 @@ $ /tmp/xcargo build   # at repo root -> builds only msrs-core, msrs-transport, e
     Finished `dev` profile [unoptimized + debuginfo] target(s)
 # (spike NOT built; `cargo metadata` members = msrs-core, msrs-transport, echo)
 ```
+
+---
+
+## 11. Payload-type constraints discovered in Task 9 (echo example)
+
+- **Plain `String` cannot be a copper payload** under cu29 rc2's default
+  (reflect-off) build: payloads must implement `TypePath`, and only primitives
+  get it. Fix: a newtype deriving the full `CuMsgPayload` set —
+  `#[derive(Default, Debug, Clone, Encode, Decode, Serialize, Deserialize, Reflect)]
+  pub struct EchoMsg(pub String);` (the stub `Reflect` derive supplies `TypePath`).
+- **Do not depend on `cu29-export` for log reading** — it force-enables
+  `cu29/reflect`, flipping the whole build to `bevy_reflect` and breaking
+  `#[derive(Reflect)]` on structs with non-reflectable fields (e.g. crossbeam
+  channel ends in `IngressTask`/`EgressTask`). Instead read logs via the prelude:
+  `gen_cumsgs!("copperconfig.ron")` + `UnifiedLoggerBuilder` → `UnifiedLogger::Read`
+  → `UnifiedLoggerIOReader::new(read, UnifiedLogType::CopperList)` → loop
+  `cu29::bincode::decode_from_std_read::<CopperList<CuMsgs>, _, _>(&mut reader, standard())`.
+  Copperlist slot order matches `<CuMsgs as MatchingTasks>::get_all_task_ids()`.
+- **RON `type:` strings**: crate-root type aliases (`pub type EchoFsm =
+  msrs_core::FsmTask<EchoMachine>;` referenced as `"EchoFsm"`) side-step
+  generic-path parsing; `msg:` needs a fully qualified path (`"crate::EchoMsg"`)
+  because `gen_cumsgs!` codegen lands in a nested module.
+- **Replay + channel injection**: `IngressTask::install`/`EgressTask::install`
+  slots are consumed by `new()`, so a second runtime build in the same process
+  (replay) just requires calling `install()` again with fresh ends.
