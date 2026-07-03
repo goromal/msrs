@@ -15,8 +15,8 @@
 //!      re-run the deterministic FSM over them, reproducing the echoes. The live
 //!      and replay sequences are compared bit-for-bit with `diff`.
 
-use cu29::prelude::*;
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use cu29::prelude::*;
 use msrs_core::{run_step, RtConfig, Trigger};
 use msrs_transport::{EgressTask, IngressTask, Transport, TransportDriver};
 use std::path::{Path, PathBuf};
@@ -63,7 +63,9 @@ impl Transport for Feeder {
     fn run(self, rx_out: Receiver<EchoMsg>, tx_in: Sender<EchoMsg>) -> Result<(), String> {
         // Feed every input into the DAG.
         for msg in &self.inputs {
-            tx_in.send(EchoMsg::new(msg.clone())).map_err(|e| e.to_string())?;
+            tx_in
+                .send(EchoMsg::new(msg.clone()))
+                .map_err(|e| e.to_string())?;
         }
         // Collect exactly one echo per input, forwarding its body to main.
         for _ in 0..self.inputs.len() {
@@ -99,11 +101,15 @@ fn run_live(log_base: &Path, inputs: &[&str]) -> Vec<String> {
         .build()
         .expect("Failed to create application.");
 
-    application.start_all_tasks().expect("start_all_tasks failed");
+    application
+        .start_all_tasks()
+        .expect("start_all_tasks failed");
     // Ingress drains at most one message per iteration; run a few extra so all
     // messages traverse ingress → echo → egress.
     for _ in 0..(inputs.len() + 3) {
-        application.run_one_iteration().expect("run_one_iteration failed");
+        application
+            .run_one_iteration()
+            .expect("run_one_iteration failed");
     }
     application.stop_all_tasks().expect("stop_all_tasks failed");
 
@@ -157,9 +163,7 @@ fn read_recorded(log_base: &Path) -> Recorded {
     let mut ingress_inputs = Vec::new();
     let mut echo_outputs = Vec::new();
     // Iterate every recorded copperlist until the stream is exhausted.
-    while let Ok(cl) =
-        decode_from_std_read::<CopperList<CuMsgs>, _, _>(&mut reader, standard())
-    {
+    while let Ok(cl) = decode_from_std_read::<CopperList<CuMsgs>, _, _>(&mut reader, standard()) {
         if let Some(input) = cl.msgs.0 .0.payload() {
             ingress_inputs.push(input.0.clone());
         }
@@ -180,15 +184,14 @@ fn replay(inputs: &[String]) -> Vec<String> {
     inputs
         .iter()
         .filter_map(|msg| {
-            run_step(&mut machine, &Trigger::Message(&EchoMsg::new(msg.clone())))
-                .map(|out| out.0)
+            run_step(&mut machine, &Trigger::Message(&EchoMsg::new(msg.clone()))).map(|out| out.0)
         })
         .collect()
 }
 
 fn main() {
-    let log_base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/echo-logs/echo.copper");
+    let log_base =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/echo-logs/echo.copper");
     std::fs::create_dir_all(log_base.parent().unwrap()).expect("create log dir");
     // Start each run from a clean log family so the reader sees only this run.
     if let Some(dir) = log_base.parent() {

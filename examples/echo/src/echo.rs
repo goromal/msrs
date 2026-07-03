@@ -111,7 +111,7 @@ impl FsmSpec for EchoMachine {
     fn step(&mut self, trigger: &Trigger<'_, EchoMsg>, effects: &mut Effects<EchoMsg>) {
         // Lazily build & initialize the statig machine on first use.
         if self.sm.is_none() {
-            let sm = EchoGate::default()
+            let sm = EchoGate
                 .uninitialized_state_machine()
                 .init_with_context(&mut self.ctx);
             self.sm = Some(sm);
