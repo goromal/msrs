@@ -22,7 +22,10 @@ pub struct RtConfig {
 impl RtConfig {
     /// Non-real-time default: normal scheduling, no pinning.
     pub fn normal() -> Self {
-        Self { scheduler: SchedPolicy::Normal, affinity: Vec::new() }
+        Self {
+            scheduler: SchedPolicy::Normal,
+            affinity: Vec::new(),
+        }
     }
 
     /// Apply affinity then scheduler policy to the current thread.
@@ -39,15 +42,12 @@ impl RtConfig {
                         match ids.iter().find(|c| c.id == *want) {
                             Some(core) => {
                                 if !core_affinity::set_for_current(*core) {
-                                    first_err.get_or_insert(format!(
-                                        "failed to pin to core {want}"
-                                    ));
+                                    first_err
+                                        .get_or_insert(format!("failed to pin to core {want}"));
                                 }
                             }
                             None => {
-                                first_err.get_or_insert(format!(
-                                    "core {want} not available"
-                                ));
+                                first_err.get_or_insert(format!("core {want} not available"));
                             }
                         }
                     }

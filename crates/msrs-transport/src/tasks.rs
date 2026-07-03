@@ -89,10 +89,15 @@ impl<T: Send + 'static> IngressTask<T> {
     /// copper runtime constructs this task.  Panics if a slot for `T` is already
     /// occupied (double-install guard).
     pub fn install(rx: Receiver<T>) {
-        let mut guard = ingress_slots().lock().expect("IngressTask registry poisoned");
+        let mut guard = ingress_slots()
+            .lock()
+            .expect("IngressTask registry poisoned");
         let key = TypeId::of::<T>();
         if guard.contains_key(&key) {
-            panic!("IngressTask<{}> channel already installed", std::any::type_name::<T>());
+            panic!(
+                "IngressTask<{}> channel already installed",
+                std::any::type_name::<T>()
+            );
         }
         guard.insert(key, Box::new(rx));
     }
@@ -169,7 +174,10 @@ impl<T: Send + 'static> EgressTask<T> {
         let mut guard = egress_slots().lock().expect("EgressTask registry poisoned");
         let key = TypeId::of::<T>();
         if guard.contains_key(&key) {
-            panic!("EgressTask<{}> channel already installed", std::any::type_name::<T>());
+            panic!(
+                "EgressTask<{}> channel already installed",
+                std::any::type_name::<T>()
+            );
         }
         guard.insert(key, Box::new(tx));
     }

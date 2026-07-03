@@ -57,7 +57,9 @@ pub struct FsmTask<M> {
 
 impl<M: Default> Default for FsmTask<M> {
     fn default() -> Self {
-        Self { machine: M::default() }
+        Self {
+            machine: M::default(),
+        }
     }
 }
 

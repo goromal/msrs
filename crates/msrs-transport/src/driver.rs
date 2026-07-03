@@ -18,14 +18,21 @@ pub struct TransportDriver;
 
 impl TransportDriver {
     /// Spawn `transport` on a dedicated thread with `rt` applied to it.
-    pub fn spawn<T: Transport>(transport: T, rt: RtConfig) -> DriverHandles<T::Inbound, T::Outbound> {
+    pub fn spawn<T: Transport>(
+        transport: T,
+        rt: RtConfig,
+    ) -> DriverHandles<T::Inbound, T::Outbound> {
         let (to_transport, rx_out) = unbounded::<T::Outbound>();
         let (tx_in, from_transport) = unbounded::<T::Inbound>();
         let join = thread::spawn(move || {
             let _ = rt.apply(); // best-effort RT on the driver thread
             transport.run(rx_out, tx_in)
         });
-        DriverHandles { to_transport, from_transport, join }
+        DriverHandles {
+            to_transport,
+            from_transport,
+            join,
+        }
     }
 }
 
