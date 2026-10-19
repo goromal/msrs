@@ -11,16 +11,31 @@
 //! `ResourceManager` from Rust code rather than from a config file.  Route (A)
 //! is therefore not workable.
 //!
-//! Route (B): a process-wide, `TypeId`-keyed registry stores the channel ends
-//! before the runtime is constructed.  The application (Task 9: echo example)
-//! calls `IngressTask::install(rx)` and `EgressTask::install(tx)` before
-//! building the copper runtime.  When the generated runtime code calls
-//! `IngressTask::new(...)` / `EgressTask::new(...)`, `new()` pops the matching
-//! channel end out of the registry.  Type safety is enforced at runtime via
-//! `TypeId` and `Any::downcast`; a clear `CuError` is returned if the channel
-//! was not installed or the type does not match.
+//! Route (B): a process-wide registry (see [`crate::registry`]) stores the
+//! channel ends before the runtime is constructed.  The application calls
+//! `IngressTask::install(rx)` and `EgressTask::install(tx)` before building the
+//! copper runtime.  When the generated runtime code calls
+//! `IngressTask::new(...)` / `EgressTask::new(...)`, `new()` takes the matching
+//! channel end out of the registry.  Service-owned tasks use the same registry
+//! through [`crate::registry::install`] / [`crate::registry::take`].
+//!
+//! # Choosing an ingress task
+//!
+//! * [`IngressTask`] forwards at most one message per iteration. Under
+//!   sustained input a backlog builds up and a downstream `FsmTask` never sees
+//!   a `Tick`.
+//! * [`CycleIngressTask`] emits a [`Cycle`] on *every* iteration: a bounded
+//!   batch of drained messages plus the cycle timestamp. Time therefore
+//!   reaches the FSM (and the unified log) regardless of input load, which is
+//!   what watchdogs and deadlines need. Pair it with `FsmBatchTask` and
+//!   [`BatchEgressTask`] when one cycle can produce several outputs.
 
+use crate::registry;
+use bincode::{Decode, Encode};
 use crossbeam_channel::{Receiver, Sender};
+use cu29::prelude::*;
+use msrs_core::Batch;
+use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
 // Copper-agnostic step helpers
@@ -41,27 +56,16 @@ pub fn egress_step<T>(tx: &Sender<T>, payload: Option<T>) -> Result<(), String> 
     }
 }
 
-// ---------------------------------------------------------------------------
-// copper-rs CuSrcTask / CuSinkTask impls
-// ---------------------------------------------------------------------------
-
-use cu29::prelude::*;
-use std::any::{Any, TypeId};
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
-
-// Per-type channel-end registries.  Each entry is consumed exactly once by
-// `new()`, so a type error or double-construction is caught immediately.
-
-static INGRESS_SLOTS: OnceLock<Mutex<HashMap<TypeId, Box<dyn Any + Send>>>> = OnceLock::new();
-static EGRESS_SLOTS: OnceLock<Mutex<HashMap<TypeId, Box<dyn Any + Send>>>> = OnceLock::new();
-
-fn ingress_slots() -> &'static Mutex<HashMap<TypeId, Box<dyn Any + Send>>> {
-    INGRESS_SLOTS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn egress_slots() -> &'static Mutex<HashMap<TypeId, Box<dyn Any + Send>>> {
-    EGRESS_SLOTS.get_or_init(|| Mutex::new(HashMap::new()))
+/// Drain up to `max_batch` inbound messages (non-blocking) and stamp the
+/// batch with `now_ns`, which the caller samples *after* the drain so every
+/// event in the batch is known to precede it.
+pub fn cycle_step<T>(rx: &Receiver<T>, max_batch: usize, now_ns: u64) -> Cycle<T> {
+    let events: Vec<T> = rx.try_iter().take(max_batch).collect();
+    Cycle {
+        now_ns,
+        events,
+        pending: rx.len() as u64,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -71,8 +75,10 @@ fn egress_slots() -> &'static Mutex<HashMap<TypeId, Box<dyn Any + Send>>> {
 /// A copper source task that drains inbound messages from the transport channel.
 ///
 /// Each `process()` cycle calls [`ingress_step`]: if a message is ready, it is
-/// set as the output payload (with the current context clock); otherwise the
-/// output is cleared (empty slot on the CopperList).
+/// set as the output payload; otherwise the output is cleared (empty slot on
+/// the CopperList). Either way the output's `tov` is stamped with the cycle
+/// time, so the unified log records the time a downstream `FsmTask` uses for
+/// `Tick` and replay can reproduce it.
 ///
 /// Before building the copper runtime, the caller must install the receive end
 /// of the transport channel:
@@ -89,17 +95,7 @@ impl<T: Send + 'static> IngressTask<T> {
     /// copper runtime constructs this task.  Panics if a slot for `T` is already
     /// occupied (double-install guard).
     pub fn install(rx: Receiver<T>) {
-        let mut guard = ingress_slots()
-            .lock()
-            .expect("IngressTask registry poisoned");
-        let key = TypeId::of::<T>();
-        if guard.contains_key(&key) {
-            panic!(
-                "IngressTask<{}> channel already installed",
-                std::any::type_name::<T>()
-            );
-        }
-        guard.insert(key, Box::new(rx));
+        registry::install::<Self, _>(rx);
     }
 }
 
@@ -116,32 +112,103 @@ where
     where
         Self: Sized,
     {
-        let key = TypeId::of::<T>();
-        let boxed = ingress_slots()
-            .lock()
-            .map_err(|_| CuError::from("IngressTask registry poisoned"))?
-            .remove(&key)
-            .ok_or_else(|| {
-                CuError::from(format!(
-                    "IngressTask<{}> channel not installed; call IngressTask::install(rx) \
-                     before building the copper runtime",
-                    std::any::type_name::<T>()
-                ))
-            })?;
-        let rx = *boxed
-            .downcast::<Receiver<T>>()
-            .map_err(|_| CuError::from("IngressTask channel type mismatch (downcast failed)"))?;
-        Ok(Self { rx })
+        Ok(Self {
+            rx: registry::take::<Self, _>()?,
+        })
     }
 
     fn process<'o>(&mut self, ctx: &CuContext, new_msg: &mut Self::Output<'o>) -> CuResult<()> {
         match ingress_step(&self.rx) {
-            Some(v) => {
-                new_msg.set_payload(v);
-                new_msg.tov = Tov::Time(ctx.now());
-            }
+            Some(v) => new_msg.set_payload(v),
             None => new_msg.clear_payload(),
         }
+        new_msg.tov = Tov::Time(ctx.now());
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CycleIngressTask<T>
+// ---------------------------------------------------------------------------
+
+/// One ingress cycle: the messages drained this iteration and the cycle time.
+///
+/// Emitted by [`CycleIngressTask`] on every iteration, including those with no
+/// events, so a downstream FSM receives time continuously and the timestamp is
+/// recorded in the unified log for replay.
+#[derive(Default, Debug, Clone, PartialEq, Encode, Decode, Serialize, Deserialize, Reflect)]
+pub struct Cycle<T> {
+    /// Runtime clock time (ns), sampled after the drain.
+    pub now_ns: u64,
+    /// Messages drained this cycle, in arrival order (at most `max_batch`).
+    pub events: Vec<T>,
+    /// Messages still queued after the drain. Non-zero means input is
+    /// outpacing the loop; the service decides how to react.
+    pub pending: u64,
+}
+
+/// Default batch cap for [`CycleIngressTask`] when RON sets no `max_batch`.
+pub const DEFAULT_MAX_BATCH: usize = 64;
+
+/// A copper source task that emits a [`Cycle`] every iteration.
+///
+/// Drains up to `max_batch` messages (RON component config, default
+/// [`DEFAULT_MAX_BATCH`]) and stamps the cycle with the clock read after the
+/// drain:
+/// ```ron
+/// ( id: "ingress", type: "MyCycleIngress", config: { "max_batch": 32 } ),
+/// ```
+/// Install the receive end before building the runtime, exactly as with
+/// [`IngressTask`]:
+/// ```ignore
+/// CycleIngressTask::<MyPayload>::install(rx);
+/// ```
+#[derive(Reflect)]
+pub struct CycleIngressTask<T> {
+    rx: Receiver<T>,
+    max_batch: usize,
+}
+
+impl<T: Send + 'static> CycleIngressTask<T> {
+    /// Install the inbound channel end for `T`. Panics on double install.
+    pub fn install(rx: Receiver<T>) {
+        registry::install::<Self, _>(rx);
+    }
+}
+
+impl<T> Freezable for CycleIngressTask<T> {}
+
+impl<T> CuSrcTask for CycleIngressTask<T>
+where
+    T: CuMsgPayload + Send + 'static,
+{
+    type Output<'m> = CuMsg<Cycle<T>>;
+    type Resources<'r> = ();
+
+    fn new(config: Option<&ComponentConfig>, _resources: Self::Resources<'_>) -> CuResult<Self>
+    where
+        Self: Sized,
+    {
+        let max_batch = match config {
+            Some(cfg) => cfg.get::<u32>("max_batch")?.map(|v| v as usize),
+            None => None,
+        }
+        .unwrap_or(DEFAULT_MAX_BATCH);
+        if max_batch == 0 {
+            return Err(CuError::from("CycleIngressTask max_batch must be > 0"));
+        }
+        Ok(Self {
+            rx: registry::take::<Self, _>()?,
+            max_batch,
+        })
+    }
+
+    fn process<'o>(&mut self, ctx: &CuContext, new_msg: &mut Self::Output<'o>) -> CuResult<()> {
+        let mut cycle = cycle_step(&self.rx, self.max_batch, 0);
+        let now = ctx.now();
+        cycle.now_ns = now.as_nanos();
+        new_msg.set_payload(cycle);
+        new_msg.tov = Tov::Time(now);
         Ok(())
     }
 }
@@ -171,15 +238,7 @@ impl<T: Send + 'static> EgressTask<T> {
     /// copper runtime constructs this task.  Panics if a slot for `T` is already
     /// occupied (double-install guard).
     pub fn install(tx: Sender<T>) {
-        let mut guard = egress_slots().lock().expect("EgressTask registry poisoned");
-        let key = TypeId::of::<T>();
-        if guard.contains_key(&key) {
-            panic!(
-                "EgressTask<{}> channel already installed",
-                std::any::type_name::<T>()
-            );
-        }
-        guard.insert(key, Box::new(tx));
+        registry::install::<Self, _>(tx);
     }
 }
 
@@ -196,26 +255,63 @@ where
     where
         Self: Sized,
     {
-        let key = TypeId::of::<T>();
-        let boxed = egress_slots()
-            .lock()
-            .map_err(|_| CuError::from("EgressTask registry poisoned"))?
-            .remove(&key)
-            .ok_or_else(|| {
-                CuError::from(format!(
-                    "EgressTask<{}> channel not installed; call EgressTask::install(tx) \
-                     before building the copper runtime",
-                    std::any::type_name::<T>()
-                ))
-            })?;
-        let tx = *boxed
-            .downcast::<Sender<T>>()
-            .map_err(|_| CuError::from("EgressTask channel type mismatch (downcast failed)"))?;
-        Ok(Self { tx })
+        Ok(Self {
+            tx: registry::take::<Self, _>()?,
+        })
     }
 
     fn process<'i>(&mut self, _ctx: &CuContext, input: &Self::Input<'i>) -> CuResult<()> {
         egress_step(&self.tx, input.payload().cloned()).map_err(CuError::from)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// BatchEgressTask<T>
+// ---------------------------------------------------------------------------
+
+/// A copper sink task that forwards every value of a [`Batch`] (for example
+/// the output of `FsmBatchTask`) to the transport channel, in order.
+///
+/// ```ignore
+/// BatchEgressTask::<MyPayload>::install(tx);
+/// ```
+#[derive(Reflect)]
+pub struct BatchEgressTask<T> {
+    tx: Sender<T>,
+}
+
+impl<T: Send + 'static> BatchEgressTask<T> {
+    /// Install the outbound channel end for `T`. Panics on double install.
+    pub fn install(tx: Sender<T>) {
+        registry::install::<Self, _>(tx);
+    }
+}
+
+impl<T> Freezable for BatchEgressTask<T> {}
+
+impl<T> CuSinkTask for BatchEgressTask<T>
+where
+    T: CuMsgPayload + Send + 'static,
+{
+    type Input<'m> = CuMsg<Batch<T>>;
+    type Resources<'r> = ();
+
+    fn new(_config: Option<&ComponentConfig>, _resources: Self::Resources<'_>) -> CuResult<Self>
+    where
+        Self: Sized,
+    {
+        Ok(Self {
+            tx: registry::take::<Self, _>()?,
+        })
+    }
+
+    fn process<'i>(&mut self, _ctx: &CuContext, input: &Self::Input<'i>) -> CuResult<()> {
+        if let Some(Batch(values)) = input.payload() {
+            for v in values {
+                egress_step(&self.tx, Some(v.clone())).map_err(CuError::from)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -243,5 +339,84 @@ mod tests {
         assert!(rx.try_recv().is_err());
         egress_step(&tx, Some(9)).unwrap();
         assert_eq!(rx.try_recv().unwrap(), 9);
+    }
+
+    #[test]
+    fn cycle_step_drains_bounded_batch_and_reports_pending() {
+        let (tx, rx) = unbounded::<i32>();
+        for v in 0..5 {
+            tx.send(v).unwrap();
+        }
+        let c = cycle_step(&rx, 3, 77);
+        assert_eq!(c.events, vec![0, 1, 2]);
+        assert_eq!(c.pending, 2);
+        assert_eq!(c.now_ns, 77);
+        let c = cycle_step(&rx, 3, 78);
+        assert_eq!(c.events, vec![3, 4]);
+        assert_eq!(c.pending, 0);
+        // An empty cycle still carries time.
+        let c = cycle_step(&rx, 3, 79);
+        assert!(c.events.is_empty());
+        assert_eq!(c.now_ns, 79);
+    }
+
+    // Each task test uses its own payload type so registry slots don't collide
+    // across parallel tests.
+    #[derive(Default, Debug, Clone, PartialEq, Encode, Decode, Serialize, Deserialize, Reflect)]
+    struct IngressProbe(u32);
+
+    #[test]
+    fn ingress_task_stamps_tov_on_empty_cycles() {
+        let (_tx, rx) = unbounded::<IngressProbe>();
+        IngressTask::<IngressProbe>::install(rx);
+        let mut task = IngressTask::<IngressProbe>::new(None, ()).unwrap();
+        let (ctx, mock) = CuContext::new_mock_clock();
+        mock.set_value(1234);
+        let mut out = CuMsg::<IngressProbe>::new(None);
+        task.process(&ctx, &mut out).unwrap();
+        assert!(out.payload().is_none());
+        assert!(matches!(out.tov, Tov::Time(t) if t.as_nanos() == 1234));
+    }
+
+    #[derive(Default, Debug, Clone, PartialEq, Encode, Decode, Serialize, Deserialize, Reflect)]
+    struct CycleProbe(u32);
+
+    #[test]
+    fn cycle_ingress_task_emits_every_iteration() {
+        let (tx, rx) = unbounded::<CycleProbe>();
+        CycleIngressTask::<CycleProbe>::install(rx);
+        let mut task = CycleIngressTask::<CycleProbe>::new(None, ()).unwrap();
+        let (ctx, mock) = CuContext::new_mock_clock();
+        let mut out = CuMsg::<Cycle<CycleProbe>>::new(None);
+
+        mock.set_value(10);
+        task.process(&ctx, &mut out).unwrap();
+        let c = out.payload().expect("cycle emitted with no input");
+        assert_eq!((c.now_ns, c.events.len()), (10, 0));
+
+        tx.send(CycleProbe(1)).unwrap();
+        tx.send(CycleProbe(2)).unwrap();
+        mock.set_value(20);
+        task.process(&ctx, &mut out).unwrap();
+        let c = out.payload().unwrap();
+        assert_eq!(c.now_ns, 20);
+        assert_eq!(c.events, vec![CycleProbe(1), CycleProbe(2)]);
+    }
+
+    #[derive(Default, Debug, Clone, PartialEq, Encode, Decode, Serialize, Deserialize, Reflect)]
+    struct BatchProbe(u32);
+
+    #[test]
+    fn batch_egress_forwards_each_value_in_order() {
+        let (tx, rx) = unbounded::<BatchProbe>();
+        BatchEgressTask::<BatchProbe>::install(tx);
+        let mut task = BatchEgressTask::<BatchProbe>::new(None, ()).unwrap();
+        let ctx = CuContext::new_mock_clock().0;
+        let input = CuMsg::new(Some(Batch(vec![BatchProbe(1), BatchProbe(2)])));
+        task.process(&ctx, &input).unwrap();
+        assert_eq!(
+            rx.try_iter().collect::<Vec<_>>(),
+            [BatchProbe(1), BatchProbe(2)]
+        );
     }
 }

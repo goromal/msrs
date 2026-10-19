@@ -9,3 +9,6 @@ cu29.workspace = true
 statig.workspace = true
 thread-priority.workspace = true
 core_affinity.workspace = true
+ctrlc.workspace = true
+bincode.workspace = true
+serde.workspace = true

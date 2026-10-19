@@ -8,3 +8,5 @@ license.workspace = true
 cu29.workspace = true
 crossbeam-channel.workspace = true
 msrs-core = { path = "../msrs-core" }
+bincode.workspace = true
+serde.workspace = true
