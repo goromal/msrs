@@ -14,12 +14,31 @@ rust-version = "1.83"
 # verified on. Bump these deliberately, together with the notes.
 cu29 = "=1.0.0-rc2"
 statig = "=0.4.1"
+# cu29 itself requires its sub-crates with caret requirements (`1.0.0-rc2`
+# means `^1.0.0-rc2`), so a consumer without this repo's Cargo.lock resolves
+# them to 1.3.x and `#[copper_runtime]` no longer compiles. msrs-core depends
+# on each one exactly to hold every consumer on the verified baseline.
+cu29-clock = "=1.0.0-rc2"
+cu29-derive = "=1.0.0-rc2"
+cu29-intern-strs = "=1.0.0-rc2"
+cu29-log = "=1.0.0-rc2"
+cu29-log-derive = "=1.0.0-rc2"
+cu29-log-runtime = "=1.0.0-rc2"
+cu29-reflect-derive = "=1.0.0-rc2"
+cu29-runtime = "=1.0.0-rc2"
+cu29-traits = "=1.0.0-rc2"
+cu29-unifiedlog = "=1.0.0-rc2"
+cu29-units = "=1.0.0-rc2"
+cu29-value = "=1.0.0-rc2"
 # cu29's `signal-handler` feature installs a ctrlc handler, but without
 # `termination` it only catches SIGINT. Enabling it here (feature unification)
 # makes SIGTERM -- systemd's default stop signal -- stop tasks and flush the log.
 ctrlc = { version = "3.5", features = ["termination"] }
-# Payload derives. `bincode` is the cu-bincode fork cu29 uses.
-bincode = { package = "cu-bincode", version = "2.0.2", features = ["derive", "alloc"], default-features = false }
+# Payload derives. `bincode` is the cu-bincode fork cu29 uses; it is also the
+# encoding of every logged copperlist, so it is pinned with cu29.
+bincode = { package = "cu-bincode", version = "=2.0.2", features = ["derive", "alloc"], default-features = false }
+# cu-bincode requires its derive crate with a caret requirement too.
+cu-bincode-derive = "=2.0.2"
 serde = { version = "1", features = ["derive"] }
 thread-priority = "3"
 core_affinity = "0.8"

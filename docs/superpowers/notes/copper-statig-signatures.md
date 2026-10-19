@@ -29,6 +29,17 @@ statig = "0.4"
 > `run_until_shutdown()`) but is not the baseline these notes verify. The msrs
 > workspace pins `cu29 = "=1.0.0-rc2"` and `statig = "=0.4.1"`; consumers should
 > pin the same versions.
+>
+> **The facade pin is not enough.** cu29 `1.0.0-rc2` requires its sub-crates
+> (`cu29-runtime`, `cu29-derive`, `cu29-clock`, `cu29-log*`, `cu29-traits`,
+> `cu29-unifiedlog`, `cu29-units`, `cu29-value`, `cu29-intern-strs`,
+> `cu29-reflect-derive`) as `1.0.0-rc2` = `^1.0.0-rc2`, and cu-bincode 2.0.2
+> requires `cu-bincode-derive` with a caret. A fresh consumer lock therefore
+> resolved cu29 rc2 with cu29-runtime/derive 1.3.0, and `#[copper_runtime]`
+> failed with `cannot find __private in cu29`. `cargo tree -i cu29 --depth 0`
+> still printed rc2. msrs-core now depends on every sub-crate and on
+> cu-bincode/cu-bincode-derive exactly (`=`), which holds consumers on this
+> baseline; verify with `cargo tree -i cu29-runtime --depth 0`.
 
 **A `build.rs` is mandatory** for any crate using `#[copper_runtime]`. Without it
 the proc-macro panics at compile time:
@@ -471,3 +482,37 @@ $ /tmp/xcargo build   # at repo root -> builds only msrs-core, msrs-transport, e
   top-level `logging: (enable_task_logging: false, ..)` and per-task
   `logging: (enabled: false)`, but turning logging off removes what the replay
   gate reads.
+
+---
+
+## 15. Replay helpers and facts from the drone example bring-up
+
+Verified with four daemons (arming supervisor, goto executor, mission
+planner, two-stage mission service) on msrs `dev/msrs-drone-examples`,
+cu29 =1.0.0-rc2, statig 0.4.1, rustc 1.95.
+
+- **End of log is detectable.** `decode_from_std_read` on the copperlist
+  stream ends with `DecodeError::UnexpectedEnd` at a clean end. Flipping 16
+  bytes inside the copperlist section instead ended decoding early with
+  `Utf8 { .. }` or `UnexpectedVariant { .. }` (after 37 and 118 of 125
+  copperlists). `msrs_core::read_copperlists` returns `LogEnd::Eof` or
+  `LogEnd::Error(..)` accordingly. A record truncated at the very end still
+  reads as `UnexpectedEnd`, so check contiguous ids and the expected count too.
+- **Compare bytes, not `PartialEq`.** Payloads with `f64` fields can hold NaN,
+  which never equals itself; `msrs_core::replay_gate` compares bincode
+  encodings and reports id gaps and the first divergence.
+- **Chained FSM tasks work.** `CycleIngressTask → FsmTask<A> → FsmTask<B> →
+  EgressTask` needs nothing special; each stage's output is its own
+  copperlist slot, so a gate can replay each stage from its recorded input
+  and the chain from the ingress cycle. A perturbed telemetry value diverged
+  only the downstream stage (planner 0, executor 425 copperlists), which
+  localizes a regression to a stage.
+- **Payload enums.** Enums with struct variants (`Waypoint { x, y, z, speed }`)
+  and variants carrying `Vec` (`Rejected { issues: Vec<Issue> }`) derive the
+  full payload set and round-trip through the log.
+- **Copperlist size is payload-dependent.** A three-task DAG with mostly empty
+  cycles used about 70 B per copperlist; a per-cycle composite output about
+  146 B; a 64-leg plan payload encodes to 4767 B, so it is published on change.
+- **AF_UNIX socket paths are limited to 108 bytes.** Binding under a deep
+  working directory failed with "path too long"; bind relative to the
+  working directory or under `/run`.

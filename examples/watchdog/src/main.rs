@@ -15,7 +15,10 @@
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use cu29::prelude::*;
-use msrs_core::{run_step_all, Batch, RtConfig, Trigger};
+use msrs_core::{
+    read_copperlists, replay_gate, run_step_all, Batch, GateReport, LogEnd, Recorded, RtConfig,
+    Trigger,
+};
 use msrs_transport::{BatchEgressTask, Cycle, CycleIngressTask, Transport, TransportDriver};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -101,54 +104,42 @@ fn run_live(log_base: &Path) -> Vec<Alarm> {
     res_rx.try_iter().collect()
 }
 
-/// Recorded per-copperlist payloads: each ingress cycle and the alarms the
-/// watchdog emitted for it.
-struct Recorded {
-    cycles: Vec<Cycle<Feed>>,
-    alarms: Vec<Alarm>,
-}
-
-fn read_recorded(log_base: &Path) -> Recorded {
-    use cu29::bincode::{config::standard, decode_from_std_read};
-
+/// Recorded steps: each ingress cycle and the alarms emitted for it (`None`
+/// when the step emitted nothing).
+fn read_recorded(log_base: &Path) -> Vec<Recorded<Cycle<Feed>, Option<AlarmBatch>>> {
     let ids = <CuMsgs as MatchingTasks>::get_all_task_ids();
     assert_eq!(
         ids,
         ["ingress", "watchdog", "egress"],
         "unexpected copperlist slot order: {ids:?}"
     );
-
-    let read = match UnifiedLoggerBuilder::new()
-        .file_base_name(log_base)
-        .build()
-        .expect("open unified log for reading")
-    {
-        UnifiedLogger::Read(r) => r,
-        UnifiedLogger::Write(_) => panic!("expected a read-only unified logger"),
-    };
-    let mut reader = UnifiedLoggerIOReader::new(read, UnifiedLogType::CopperList);
-
-    let mut cycles = Vec::new();
-    let mut alarms = Vec::new();
-    while let Ok(cl) = decode_from_std_read::<CopperList<CuMsgs>, _, _>(&mut reader, standard()) {
-        // CycleIngressTask emits on every iteration, so every copperlist has
-        // a cycle; a missing one would be a gap the replay cannot cover.
-        let cycle = cl.msgs.0 .0.payload().expect("copperlist without a cycle");
-        cycles.push(cycle.clone());
-        if let Some(Batch(out)) = cl.msgs.0 .1.payload() {
-            alarms.extend(out.iter().cloned());
-        }
-    }
-    Recorded { cycles, alarms }
+    let (copperlists, end) = read_copperlists::<CuMsgs>(log_base).expect("read unified log");
+    assert_eq!(end, LogEnd::Eof, "log did not end cleanly");
+    copperlists
+        .iter()
+        .map(|cl| Recorded {
+            id: cl.id,
+            // CycleIngressTask emits on every iteration, so every copperlist
+            // has a cycle; a missing one would be a gap the replay cannot cover.
+            input: cl
+                .msgs
+                .0
+                 .0
+                .payload()
+                .expect("copperlist without a cycle")
+                .clone(),
+            output: cl.msgs.0 .1.payload().cloned(),
+        })
+        .collect()
 }
 
 /// Re-run a fresh machine over the recorded cycles — no runtime, no clock.
-fn replay(cycles: &[Cycle<Feed>]) -> Vec<Alarm> {
+fn replay(recorded: &[Recorded<Cycle<Feed>, Option<AlarmBatch>>]) -> GateReport {
     let mut machine = WatchdogMachine::default();
-    cycles
-        .iter()
-        .flat_map(|c| run_step_all(&mut machine, &Trigger::Message(c)))
-        .collect()
+    replay_gate(recorded, |c| {
+        let out = run_step_all(&mut machine, &Trigger::Message(c));
+        (!out.is_empty()).then_some(Batch(out))
+    })
 }
 
 fn main() {
@@ -177,26 +168,50 @@ fn main() {
     );
 
     let recorded = read_recorded(&log_base);
-    let fed: usize = recorded.cycles.iter().map(|c| c.events.len()).sum();
+    let fed: usize = recorded.iter().map(|r| r.input.events.len()).sum();
+    let alarms: Vec<Alarm> = recorded
+        .iter()
+        .filter_map(|r| r.output.as_ref())
+        .flat_map(|b| b.0.iter().cloned())
+        .collect();
     println!(
         "[replay] recovered {} cycle(s) carrying {} feed(s) and {} alarm(s) from the log",
-        recorded.cycles.len(),
+        recorded.len(),
         fed,
-        recorded.alarms.len()
+        alarms.len()
     );
-    let replayed = replay(&recorded.cycles);
-    for a in &replayed {
-        println!("[replay] {a:?}");
-    }
-
     assert_eq!(
-        replayed, recorded.alarms,
-        "replay diverged from the alarms recorded in the log"
+        alarms, live,
+        "the log does not hold the alarms the live run sent"
     );
-    if replayed == live {
-        println!("REPLAY DETERMINISM: OK (live == replay, bit-identical)");
-    } else {
-        eprintln!("REPLAY DETERMINISM: FAILED\n  live:   {live:?}\n  replay: {replayed:?}");
-        std::process::exit(1);
-    }
+
+    let report = replay(&recorded);
+    println!("[replay] {report:?}");
+    assert!(
+        report.passed(),
+        "replay diverged or the log has gaps: {report:?}"
+    );
+
+    // Negative control: drop the feeds of the first cycle that armed the
+    // watchdog. The gate must notice, or it proves nothing.
+    let mut perturbed = recorded.clone();
+    let armed = perturbed
+        .iter_mut()
+        .find(|r| {
+            r.output
+                .as_ref()
+                .is_some_and(|b| b.0.contains(&Alarm::Armed))
+        })
+        .expect("a cycle that armed");
+    armed.input.events.clear();
+    let control = replay(&perturbed);
+    assert!(
+        !control.passed(),
+        "negative control passed: the gate is vacuous"
+    );
+    println!(
+        "[replay] negative control diverged as required ({} divergent step(s))",
+        control.divergent
+    );
+    println!("REPLAY DETERMINISM: OK (log == replay, bit-identical; ids contiguous)");
 }

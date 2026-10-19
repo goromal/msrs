@@ -308,7 +308,13 @@ in [`docs/superpowers/notes/copper-statig-signatures.md`](docs/superpowers/notes
 
 - **Pin the versions exactly.** Depend on `cu29 = "=1.0.0-rc2"` and
   `statig = "=0.4.1"`, as this workspace does. A caret requirement resolves
-  cu29 1.3.x in a fresh workspace.
+  cu29 1.3.x in a fresh workspace. cu29 itself requires its sub-crates
+  (`cu29-runtime`, `cu29-derive`, …) and cu-bincode its derive crate with caret
+  requirements, so `msrs-core` depends on each of them exactly; without that, a
+  fresh consumer lock mixed cu29 rc2 with cu29-runtime 1.3.0 and
+  `#[copper_runtime]` failed to expand. Check with
+  `cargo tree -i cu29-runtime --depth 0` — `-i cu29` alone still prints rc2
+  when the sub-crates have drifted.
 - **Pick the right adapter.** `IngressTask` → `FsmTask` → `EgressTask` handles
   at most one message in and one output out per iteration. A second emit in one
   step is an error, not a silent drop. For deadlines, watchdogs, or bursts, use
@@ -324,6 +330,12 @@ in [`docs/superpowers/notes/copper-statig-signatures.md`](docs/superpowers/notes
 - **A handler panic stops the service**: `run()` returns `Err`. cu29 also
   writes `copper-crash-<ms>-<pid>.txt` into the current working directory, so
   run daemons from a writable state directory.
-- **Every iteration is logged**, idle ones included (about 590 B per
-  copperlist for a three-task DAG, roughly 2 GB/h at 1 kHz). Plan the loop rate
-  and log rotation accordingly.
+- **Every iteration is logged**, idle ones included. Size depends on the
+  payloads: about 70 B per copperlist for a three-task DAG with mostly empty
+  cycles, 590 B in another; measure your own. Plan the loop rate and log
+  rotation accordingly, and publish large payloads on change, not per cycle.
+- **Replay gate:** `msrs_core::replay` reads a log (`read_copperlists`, which
+  also reports whether decoding ended cleanly) and compares a cold machine's
+  outputs with the recording as bytes (`replay_gate`, which also reports
+  copperlist id gaps). `examples/watchdog` uses both and runs a negative
+  control.
