@@ -2,10 +2,10 @@
 pub mod trigger;
 pub use trigger::Trigger;
 pub mod effects;
-pub use effects::Effects;
+pub use effects::{Effects, ExtraEmits};
 pub mod store;
 pub use store::Store;
 pub mod rt;
 pub use rt::{RtConfig, SchedPolicy};
 pub mod fsm_task;
-pub use fsm_task::{run_step, FsmSpec, FsmTask};
+pub use fsm_task::{run_step, run_step_all, Batch, FsmBatchTask, FsmSpec, FsmTask};

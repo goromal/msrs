@@ -36,3 +36,6 @@ jobs:
 
       - name: Echo example (replay determinism gate)
         run: cargo run -p echo
+
+      - name: Watchdog example (timed replay determinism gate)
+        run: cargo run -p watchdog

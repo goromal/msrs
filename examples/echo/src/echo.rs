@@ -93,15 +93,25 @@ impl EchoGate {
 /// FSM spec for the echo task. Owns a live `statig` state machine plus its
 /// context; each `Message` trigger dispatches through the machine.
 ///
-/// The `statig` machine cannot be `Default`-constructed on its own (init needs
-/// the context), so it is lazily initialized on first `step` and held behind an
-/// `Option`. No `Reflect` derive is needed: the reflect-off blanket
-/// `impl<T: 'static> Reflect for T` covers it, and `FsmTask`'s own `Reflect`
-/// derive does not bound its `machine` field.
-#[derive(Default)]
+/// The `statig` machine is initialized eagerly in `Default`, because
+/// `init_with_context` runs the initial state's entry actions (and those of its
+/// superstates). Initializing lazily inside `step` would run them during, and
+/// attribute them to, the first trigger. No `Reflect` derive is needed: the
+/// reflect-off blanket `impl<T: 'static> Reflect for T` covers it, and
+/// `FsmTask`'s own `Reflect` derive does not bound its `machine` field.
 pub struct EchoMachine {
-    sm: Option<InitializedStateMachine<EchoGate>>,
+    sm: InitializedStateMachine<EchoGate>,
     ctx: EchoCtx,
+}
+
+impl Default for EchoMachine {
+    fn default() -> Self {
+        let mut ctx = EchoCtx::default();
+        let sm = EchoGate
+            .uninitialized_state_machine()
+            .init_with_context(&mut ctx);
+        Self { sm, ctx }
+    }
 }
 
 impl FsmSpec for EchoMachine {
@@ -109,18 +119,10 @@ impl FsmSpec for EchoMachine {
     type Out = EchoMsg;
 
     fn step(&mut self, trigger: &Trigger<'_, EchoMsg>, effects: &mut Effects<EchoMsg>) {
-        // Lazily build & initialize the statig machine on first use.
-        if self.sm.is_none() {
-            let sm = EchoGate
-                .uninitialized_state_machine()
-                .init_with_context(&mut self.ctx);
-            self.sm = Some(sm);
-        }
-
         if let Some(msg) = trigger.message() {
             self.ctx.emitted = None;
-            let sm = self.sm.as_mut().expect("state machine initialized above");
-            sm.handle_with_context(&EchoEvent(msg.0.clone()), &mut self.ctx);
+            self.sm
+                .handle_with_context(&EchoEvent(msg.0.clone()), &mut self.ctx);
             if let Some(out) = self.ctx.emitted.take() {
                 effects.emit(EchoMsg(out));
             }
@@ -132,10 +134,7 @@ impl FsmSpec for EchoMachine {
 impl EchoMachine {
     /// Debug view of the current statig state (for evidence/inspection).
     pub fn state_name(&self) -> String {
-        match &self.sm {
-            Some(sm) => format!("{:?}", sm.state()),
-            None => "<uninitialized>".to_string(),
-        }
+        format!("{:?}", self.sm.state())
     }
 }
 
@@ -178,11 +177,12 @@ mod tests {
     }
 
     #[test]
-    fn statig_state_is_reachable() {
+    fn statig_machine_is_initialized_before_first_step() {
         let mut m = EchoMachine::default();
+        // Eager init: the real statig machine is live before any trigger.
+        assert_eq!(m.state_name(), "Running");
         let a = EchoMsg::new("x");
         let _ = run_step(&mut m, &Trigger::Message(&a));
-        // The real statig machine is live and in its `running` state.
         assert_eq!(m.state_name(), "Running");
     }
 }

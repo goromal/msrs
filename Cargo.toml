@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/msrs-core", "crates/msrs-transport", "examples/echo"]
+members = ["crates/msrs-core", "crates/msrs-transport", "examples/echo", "examples/watchdog"]
 exclude = ["spike"]
 
 [workspace.package]
@@ -9,8 +9,18 @@ license = "MIT"
 rust-version = "1.83"
 
 [workspace.dependencies]
-cu29 = "1.0.0-rc2"
-statig = "0.4"
+# Exact pins: a caret `1.0.0-rc2` requirement lets downstream workspaces resolve
+# cu29 1.3.x, silently moving off the baseline the signatures notes were
+# verified on. Bump these deliberately, together with the notes.
+cu29 = "=1.0.0-rc2"
+statig = "=0.4.1"
+# cu29's `signal-handler` feature installs a ctrlc handler, but without
+# `termination` it only catches SIGINT. Enabling it here (feature unification)
+# makes SIGTERM -- systemd's default stop signal -- stop tasks and flush the log.
+ctrlc = { version = "3.5", features = ["termination"] }
+# Payload derives. `bincode` is the cu-bincode fork cu29 uses.
+bincode = { package = "cu-bincode", version = "2.0.2", features = ["derive", "alloc"], default-features = false }
+serde = { version = "1", features = ["derive"] }
 thread-priority = "3"
 core_affinity = "0.8"
 crossbeam-channel = "0.5"

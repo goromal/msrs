@@ -1,0 +1,14 @@
+[package]
+name = "watchdog"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cu29.workspace = true
+statig.workspace = true
+crossbeam-channel.workspace = true
+msrs-core = { path = "../../crates/msrs-core" }
+msrs-transport = { path = "../../crates/msrs-transport" }
+bincode.workspace = true
+serde.workspace = true

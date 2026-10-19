@@ -12,5 +12,5 @@ msrs-core = { path = "../../crates/msrs-core" }
 msrs-transport = { path = "../../crates/msrs-transport" }
 # Payload derives. `bincode` is the cu-bincode fork cu29 uses, so the derived
 # `Encode`/`Decode` impls target the same traits the runtime expects.
-bincode = { package = "cu-bincode", version = "2.0.2", features = ["derive", "alloc"], default-features = false }
-serde = { version = "1", features = ["derive"] }
+bincode.workspace = true
+serde.workspace = true

@@ -23,6 +23,13 @@ cu29 = "1.0.0-rc2"     # default features are enough; Reflect is in the prelude
 statig = "0.4"
 ```
 
+> **Pin exactly in real crates.** `"1.0.0-rc2"` is a caret requirement
+> (`^1.0.0-rc2`), so a downstream workspace without msrs's `Cargo.lock`
+> resolves **cu29 1.3.x**, which still compiles (with `run()` deprecated for
+> `run_until_shutdown()`) but is not the baseline these notes verify. The msrs
+> workspace pins `cu29 = "=1.0.0-rc2"` and `statig = "=0.4.1"`; consumers should
+> pin the same versions.
+
 **A `build.rs` is mandatory** for any crate using `#[copper_runtime]`. Without it
 the proc-macro panics at compile time:
 
@@ -387,3 +394,80 @@ $ /tmp/xcargo build   # at repo root -> builds only msrs-core, msrs-transport, e
 - **Replay + channel injection**: `IngressTask::install`/`EgressTask::install`
   slots are consumed by `new()`, so a second runtime build in the same process
   (replay) just requires calling `install()` again with fresh ends.
+
+---
+
+## 12. statig 0.4.1 lifecycle facts (verified in `statig-0.4.1/src/blocking`)
+
+- **`init_with_context` runs entry actions** of the initial leaf state and all
+  its superstates (`inner.rs: init_with_context → state.enter(.., depth)`).
+  Initialize eagerly in the machine's `Default` impl, not lazily inside
+  `FsmSpec::step`, or startup entry effects run during (and are attributed to)
+  the first trigger. A manual `Default` holding
+  `InitializedStateMachine<_>` directly satisfies `FsmTask`'s `Send + Sync`
+  bound; see `examples/echo/src/echo.rs`.
+- **`Transition` to the current state re-runs exit then entry**
+  (`transition_path` returns `(1, 1)` when `same_state`). Return `Handled` for a
+  self-loop that must not re-enter.
+- **`Super` from a state with no superstate is silently treated as handled**
+  (`handle_with_context` ignores `Outcome::Super`). Nothing reports an
+  unhandled event.
+- **`before_transition` receives its arguments swapped.** The trait declares
+  `before_transition(&mut self, source, target, context)`, but the blocking
+  machine calls it as `(&target, &self.state)`, so the parameter named `source`
+  holds the *target*. `after_transition` is called after the swap and gets
+  `(old, new)` in the declared order.
+
+---
+
+## 13. msrs adapter semantics (msrs-core / msrs-transport)
+
+- **Emission limits.** `FsmTask` forwards at most one output per step; a
+  second `Effects::emit` makes `process()` return a `CuError` (and `run_step`
+  panics) instead of dropping values. Machines that emit several outputs per
+  step use `FsmBatchTask` (output `Batch<Out>`) with `BatchEgressTask`, and are
+  tested with `run_step_all`.
+- **Tick time is logged.** `IngressTask` stamps `tov` on every cycle, empty or
+  not, and `CuStampedData::encode` writes `tov` even for an empty payload.
+  `FsmTask` builds `Trigger::Tick` from that input `tov`, so a replay can
+  rebuild ticks from the log (`examples/echo` does). It falls back to
+  `ctx.now()` only when upstream leaves `tov` as `Tov::None`.
+- **Tick starvation.** `FsmTask` ticks only when the input slot is empty, so
+  sustained input means no ticks. Deadline-driven services consume
+  `CycleIngressTask` output instead: a `Cycle { now_ns, events, pending }` on
+  every iteration, time sampled after the drain, batch capped by RON
+  `config: { "max_batch": N }`. See `examples/watchdog`.
+- **Backlog.** `TransportDriver::spawn` uses unbounded channels;
+  `spawn_bounded(.., inbound_capacity)` bounds transport → DAG (a full channel
+  blocks `send`; use `try_send` to shed load). `Cycle::pending` reports what is
+  still queued after each drain.
+- **Custom tasks** get channel ends through
+  `msrs_transport::registry::{install, take}`, keyed by the consuming task
+  type.
+- **Generic payloads in RON.** `Cycle<T>` / `Batch<T>` work as copper payloads;
+  name them through crate-root aliases (`pub type FeedCycle = Cycle<Feed>;`,
+  `msg: "crate::FeedCycle"`).
+
+---
+
+## 14. Daemon lifecycle (cu29 1.0.0-rc2)
+
+- **Signals.** The generated `run()` installs a `ctrlc` handler when cu29's
+  default `signal-handler` feature is on, but `ctrlc` without its
+  `termination` feature only catches SIGINT; SIGTERM (systemd's default) killed
+  the process with exit 143, skipping `stop_all_tasks` and the log flush.
+  `msrs-core` depends on `ctrlc` with `termination`, so through feature
+  unification every consumer's `run()` now stops cleanly on SIGTERM (verified:
+  `run()` returns `Ok` and the unified log flushes).
+- **Panics.** `run()` wraps each iteration in `catch_unwind`; a handler panic
+  stops tasks and `run()` returns `Err`, so the service stops. cu29's panic
+  hook also writes `copper-crash-<unix_ms>-<pid>.txt` into the **current working
+  directory** (`monitoring.rs: write_panic_report_to_file`), even for caught
+  panics, so set the daemon's working directory (for example systemd
+  `WorkingDirectory=`) to a writable state directory.
+- **Log volume.** Every iteration writes a copperlist, idle ones included: about
+  590 B per copperlist for a three-task DAG was measured, roughly 2 GB/h at
+  1 kHz. Size `rate_target_hz` and log rotation for it. The config exposes
+  top-level `logging: (enable_task_logging: false, ..)` and per-task
+  `logging: (enabled: false)`, but turning logging off removes what the replay
+  gate reads.

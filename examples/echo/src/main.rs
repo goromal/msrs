@@ -1,18 +1,19 @@
 //! End-to-end echo service over msrs + copper-rs.
 //!
 //! DAG: `ingress → echo → egress`.
-//!   * `ingress` (`msrs_transport::IngressTask<String>`) drains inbound messages
+//!   * `ingress` (`msrs_transport::IngressTask<EchoMsg>`) drains inbound messages
 //!     from the in-process transport onto the copperlist.
 //!   * `echo` (`msrs_core::FsmTask<EchoMachine>`) runs the statig-backed echo FSM.
-//!   * `egress` (`msrs_transport::EgressTask<String>`) forwards echoes back to the
+//!   * `egress` (`msrs_transport::EgressTask<EchoMsg>`) forwards echoes back to the
 //!     transport.
 //!
 //! `main` does two things in one process so `cargo run -p echo` demonstrates the
 //! whole gate:
 //!   1. **[live]** feed 3 strings through the transport, collect the echoes, and
 //!      write a copper-rs unified log.
-//!   2. **[replay]** read the recorded ingress inputs back out of that log and
-//!      re-run the deterministic FSM over them, reproducing the echoes. The live
+//!   2. **[replay]** read the recorded ingress cycles (messages, and empty
+//!      cycles as ticks at their logged time) back out of that log and re-run
+//!      the deterministic FSM over them, reproducing the echoes. The live
 //!      and replay sequences are compared bit-for-bit with `diff`.
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -132,9 +133,15 @@ fn run_live(log_base: &Path, inputs: &[&str]) -> Vec<String> {
 // Replay: read the recorded copperlists back and re-drive the pure FSM.
 // ---------------------------------------------------------------------------
 
+/// One recorded ingress slot: a message, or an empty cycle at its logged time.
+enum RecordedInput {
+    Message(String),
+    Tick(u64),
+}
+
 /// Recorded per-copperlist payloads: the ingress input and the echo output.
 struct Recorded {
-    ingress_inputs: Vec<String>,
+    ingress_inputs: Vec<RecordedInput>,
     echo_outputs: Vec<String>,
 }
 
@@ -164,9 +171,14 @@ fn read_recorded(log_base: &Path) -> Recorded {
     let mut echo_outputs = Vec::new();
     // Iterate every recorded copperlist until the stream is exhausted.
     while let Ok(cl) = decode_from_std_read::<CopperList<CuMsgs>, _, _>(&mut reader, standard()) {
-        if let Some(input) = cl.msgs.0 .0.payload() {
-            ingress_inputs.push(input.0.clone());
-        }
+        // Every cycle is replayed, empty ones as `Tick` at the ingress tov the
+        // log recorded, exactly as `FsmTask` built the trigger live.
+        let ingress = &cl.msgs.0 .0;
+        ingress_inputs.push(match (ingress.payload(), ingress.tov) {
+            (Some(input), _) => RecordedInput::Message(input.0.clone()),
+            (None, Tov::Time(t)) => RecordedInput::Tick(t.as_nanos()),
+            (None, tov) => panic!("ingress cycle recorded without a time: {tov:?}"),
+        });
         if let Some(out) = cl.msgs.0 .1.payload() {
             echo_outputs.push(out.0.clone());
         }
@@ -178,14 +190,18 @@ fn read_recorded(log_base: &Path) -> Recorded {
 }
 
 /// Deterministically reproduce the echoes by re-running the FSM over the
-/// recorded ingress inputs — no copper runtime involved.
-fn replay(inputs: &[String]) -> Vec<String> {
+/// recorded ingress cycles (messages and ticks) — no copper runtime involved.
+fn replay(inputs: &[RecordedInput]) -> Vec<String> {
     let mut machine = EchoMachine::default();
     inputs
         .iter()
-        .filter_map(|msg| {
-            run_step(&mut machine, &Trigger::Message(&EchoMsg::new(msg.clone()))).map(|out| out.0)
+        .filter_map(|input| match input {
+            RecordedInput::Message(msg) => {
+                run_step(&mut machine, &Trigger::Message(&EchoMsg::new(msg.clone())))
+            }
+            RecordedInput::Tick(ns) => run_step(&mut machine, &Trigger::Tick(*ns)),
         })
+        .map(|out| out.0)
         .collect()
 }
 
@@ -218,8 +234,13 @@ fn main() {
     // 2. Replay from the recorded unified log.
     let recorded = read_recorded(&log_base);
     println!(
-        "[replay] recovered {} ingress input(s) and {} echo output(s) from the log",
+        "[replay] recovered {} ingress cycle(s) ({} message(s)) and {} echo output(s) from the log",
         recorded.ingress_inputs.len(),
+        recorded
+            .ingress_inputs
+            .iter()
+            .filter(|i| matches!(i, RecordedInput::Message(_)))
+            .count(),
         recorded.echo_outputs.len()
     );
     let replayed = replay(&recorded.ingress_inputs);
