@@ -1,0 +1,29 @@
+(
+    tasks: [
+        (
+            id: "ingress",
+            type: "WatchdogIngress",
+            config: { "max_batch": 16 },
+        ),
+        (
+            id: "watchdog",
+            type: "WatchdogFsm",
+        ),
+        (
+            id: "egress",
+            type: "WatchdogEgress",
+        ),
+    ],
+    cnx: [
+        (
+            src: "ingress",
+            dst: "watchdog",
+            msg: "crate::FeedCycle",
+        ),
+        (
+            src: "watchdog",
+            dst: "egress",
+            msg: "crate::AlarmBatch",
+        ),
+    ],
+)
