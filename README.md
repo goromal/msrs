@@ -4,6 +4,9 @@
 **Status:** Approved design, pre-implementation
 **Replaces:** [mscpp](https://github.com/goromal/mscpp) (deterministic, FSM-driven reactor framework for C++)
 
+> **Using msrs downstream:** see [§12](#12-consumer-notes) for version pinning,
+> timed services, and daemon lifecycle behavior.
+
 ---
 
 ## 1. Purpose
@@ -295,3 +298,32 @@ This is the msrs analog of mscpp's `grpc_echo_example.cpp` / `ros2_echo_example.
    sub-DAG of cooperating `FsmTask`s sharing a Store (mscpp was one Store per reactor).
 4. **`parallel-rt`** — keep single-threaded determinism as the default; revisit copper-rs's
    experimental parallel runtime only if a service is provably CPU-bound.
+
+---
+
+## 12. Consumer notes
+
+Verified against cu29 `=1.0.0-rc2` and statig `=0.4.1`; details and sources are
+in [`docs/superpowers/notes/copper-statig-signatures.md`](docs/superpowers/notes/copper-statig-signatures.md).
+
+- **Pin the versions exactly.** Depend on `cu29 = "=1.0.0-rc2"` and
+  `statig = "=0.4.1"`, as this workspace does. A caret requirement resolves
+  cu29 1.3.x in a fresh workspace.
+- **Pick the right adapter.** `IngressTask` → `FsmTask` → `EgressTask` handles
+  at most one message in and one output out per iteration. A second emit in one
+  step is an error, not a silent drop. For deadlines, watchdogs, or bursts, use
+  `CycleIngressTask` → `FsmBatchTask` → `BatchEgressTask`. The FSM then gets a
+  timestamped `Cycle` on every iteration, so time is never starved by input and
+  is recorded for replay. `examples/watchdog` is the reference.
+- **Bound the inbound channel** with `TransportDriver::spawn_bounded` when
+  input can outpace the loop.
+- **`TransportEvent<T>` is a copper payload** whenever `T` is.
+- **Initialize statig eagerly** in the machine's `Default`; `init_with_context`
+  runs entry actions.
+- **SIGTERM** stops `run()` cleanly (msrs-core enables `ctrlc/termination`).
+- **A handler panic stops the service**: `run()` returns `Err`. cu29 also
+  writes `copper-crash-<ms>-<pid>.txt` into the current working directory, so
+  run daemons from a writable state directory.
+- **Every iteration is logged**, idle ones included (about 590 B per
+  copperlist for a three-task DAG, roughly 2 GB/h at 1 kHz). Plan the loop rate
+  and log rotation accordingly.
