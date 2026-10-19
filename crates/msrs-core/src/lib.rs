@@ -9,3 +9,5 @@ pub mod rt;
 pub use rt::{RtConfig, SchedPolicy};
 pub mod fsm_task;
 pub use fsm_task::{run_step, run_step_all, Batch, FsmBatchTask, FsmSpec, FsmTask};
+pub mod replay;
+pub use replay::{read_copperlists, replay_gate, GateReport, LogEnd, Recorded};

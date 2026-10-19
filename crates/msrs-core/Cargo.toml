@@ -6,9 +6,23 @@ license.workspace = true
 
 [dependencies]
 cu29.workspace = true
+# Exact pins for cu29's sub-crates (see the workspace Cargo.toml).
+cu29-clock.workspace = true
+cu29-derive.workspace = true
+cu29-intern-strs.workspace = true
+cu29-log.workspace = true
+cu29-log-derive.workspace = true
+cu29-log-runtime.workspace = true
+cu29-reflect-derive.workspace = true
+cu29-runtime.workspace = true
+cu29-traits.workspace = true
+cu29-unifiedlog.workspace = true
+cu29-units.workspace = true
+cu29-value.workspace = true
 statig.workspace = true
 thread-priority.workspace = true
 core_affinity.workspace = true
 ctrlc.workspace = true
 bincode.workspace = true
+cu-bincode-derive.workspace = true
 serde.workspace = true
